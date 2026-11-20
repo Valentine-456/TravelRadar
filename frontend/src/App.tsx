@@ -28,7 +28,7 @@ function MapView() {
     <Map
       mapboxAccessToken={config.mapboxToken}
       initialViewState={{ longitude: 15, latitude: 48, zoom: 3.5 }}
-      mapStyle="mapbox://styles/mapbox/dark-v11"
+      mapStyle={config.mapboxStyle}
       style={{ position: 'absolute', inset: 0 }}
     >
       <Source id="searches" type="geojson" data={sampleHeatmap}>

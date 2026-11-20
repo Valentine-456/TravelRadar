@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 
 export type AppConfig = {
   mapboxToken: string
+  mapboxStyle: string
 }
 
 async function fetchConfig(): Promise<AppConfig> {
@@ -11,7 +12,10 @@ async function fetchConfig(): Promise<AppConfig> {
   } catch {
     // backend not running, fall back to the dev .env value
   }
-  return { mapboxToken: import.meta.env.VITE_MAPBOX_TOKEN ?? '' }
+  return {
+    mapboxToken: import.meta.env.VITE_MAPBOX_TOKEN ?? '',
+    mapboxStyle: 'mapbox://styles/mapbox/dark-v11',
+  }
 }
 
 export function useConfig() {
