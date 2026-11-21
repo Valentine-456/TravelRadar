@@ -38,3 +38,14 @@ Settings are read from `.env` (or environment variables):
 | `STATIC_DIR`   | `backend/static`                  | Folder with the built frontend   |
 
 The frontend gets its config from `GET /api/config`.
+
+## API
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/config` | Frontend config (Mapbox token and style) |
+| `GET /api/flights/timestamps` | `{"timestamps": [...]}`, all minutes with a snapshot (Unix seconds), oldest first |
+| `GET /api/flights/latest` | Newest snapshot as GeoJSON; `time` is its timestamp |
+| `GET /api/flights/{timestamp}` | Snapshot at that minute, or the closest earlier one |
+
+Flight data is read from Redis (`planes:snaps`, `planes:snap:<minute>`), written by the Spark job.

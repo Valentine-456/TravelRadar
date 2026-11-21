@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     mapbox_token: str = ""
     mapbox_style: str = "mapbox://styles/mapbox/dark-v11"
     static_dir: Path = BACKEND_DIR / "static"
+    redis_host: str = "localhost"
+    redis_port: int = 6379
 
 
 @lru_cache

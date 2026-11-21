@@ -17,10 +17,12 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:
       - travelradar-net
+    restart: unless-stopped
 
   nifi:
     image: apache/nifi:2.0.0
@@ -29,6 +31,11 @@ services:
     environment:
       SINGLE_USER_CREDENTIALS_USERNAME: admin
       SINGLE_USER_CREDENTIALS_PASSWORD: travelradar123
+      NIFI_JVM_HEAP_INIT: 1g
+      NIFI_JVM_HEAP_MAX: 1g
+    env_file:
+      - path: nifi/.env
+        required: false
     volumes:
       - nifi_conf:/opt/nifi/nifi-current/conf
       - nifi_database:/opt/nifi/nifi-current/database_repository
@@ -40,20 +47,25 @@ services:
       - kafka
     networks:
       - travelradar-net
+    restart: unless-stopped
 
   redis:
     image: redis:7.4-alpine
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 768mb --maxmemory-policy volatile-ttl
     volumes:
       - redis_data:/data
     networks:
       - travelradar-net
+    restart: unless-stopped
 
   spark-master:
-    image: apache/spark:3.5.3
+    build: ./spark
+    image: travelradar-spark:3.5.3
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    environment:
+      SPARK_DAEMON_MEMORY: 512m
     ports:
       - "8080:8080"
       - "7077:7077"
@@ -62,12 +74,16 @@ services:
       - spark_data:/opt/spark/work-dir
     networks:
       - travelradar-net
+    restart: unless-stopped
 
   spark-worker:
-    image: apache/spark:3.5.3
+    build: ./spark
+    image: travelradar-spark:3.5.3
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     environment:
-      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 1g
+      SPARK_DAEMON_MEMORY: 512m
     ports:
       - "8081:8081"
     volumes:
@@ -77,6 +93,7 @@ services:
       - spark-master
     networks:
       - travelradar-net
+    restart: unless-stopped
 
 networks:
   travelradar-net:

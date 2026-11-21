@@ -5,10 +5,12 @@ import type { MapMouseEvent } from 'mapbox-gl'
 import { ControlsPanel } from './components/ControlsPanel'
 import { PLANES_LAYER_ID, PlanesLayer, type PlaneProps } from './components/PlanesLayer'
 import { StatTile } from './components/StatTile'
+import { TimelineSlider } from './components/TimelineSlider'
 import { useConfig } from './config'
 import { sampleHeatmap } from './sampleHeatmap'
-import { samplePlanes } from './samplePlanes'
+import { emptyFlights, useFlights } from './api/flights'
 import { useLayers } from './store/layers'
+import { useTimeline } from './store/timeline'
 
 type Selected = { lng: number; lat: number; plane: PlaneProps }
 
@@ -16,6 +18,8 @@ function MapView() {
   const { data: config, isLoading } = useConfig()
   const [selected, setSelected] = useState<Selected | null>(null)
   const visible = useLayers((s) => s.visible)
+  const selectedTime = useTimeline((s) => s.selected)
+  const { data: flights } = useFlights(selectedTime, visible.flights)
 
   const onClick = (e: MapMouseEvent) => {
     const feature = e.features?.[0]
@@ -61,7 +65,7 @@ function MapView() {
         />
       </Source>
 
-      <PlanesLayer data={samplePlanes} visible={visible.flights} />
+      <PlanesLayer data={flights ?? emptyFlights} visible={visible.flights} />
 
       {selected && visible.flights && (
         <Popup longitude={selected.lng} latitude={selected.lat} onClose={() => setSelected(null)}>
@@ -96,6 +100,10 @@ export default function App() {
 
       <Box sx={{ position: 'absolute', top: 16, right: 16 }}>
         <ControlsPanel />
+      </Box>
+
+      <Box sx={{ position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)' }}>
+        <TimelineSlider />
       </Box>
     </Box>
   )

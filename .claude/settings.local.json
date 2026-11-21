@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat)",
+      "Bash(python3 -m py_compile jobs/planes_stream.py)",
+      "Bash(rm -rf jobs/__pycache__)"
+    ]
+  }
+}
