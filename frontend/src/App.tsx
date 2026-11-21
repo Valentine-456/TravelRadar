@@ -1,12 +1,26 @@
 import { Alert, Box, CircularProgress, Paper, Stack, Typography } from '@mui/material'
-import Map, { Layer, Source } from 'react-map-gl/mapbox'
+import { useState } from 'react'
+import Map, { Layer, Popup, Source } from 'react-map-gl/mapbox'
+import type { MapMouseEvent } from 'mapbox-gl'
 import { ControlsPanel } from './components/ControlsPanel'
+import { PLANES_LAYER_ID, PlanesLayer, type PlaneProps } from './components/PlanesLayer'
 import { StatTile } from './components/StatTile'
 import { useConfig } from './config'
 import { sampleHeatmap } from './sampleHeatmap'
+import { samplePlanes } from './samplePlanes'
+import { useLayers } from './store/layers'
+
+type Selected = { lng: number; lat: number; plane: PlaneProps }
 
 function MapView() {
   const { data: config, isLoading } = useConfig()
+  const [selected, setSelected] = useState<Selected | null>(null)
+  const visible = useLayers((s) => s.visible)
+
+  const onClick = (e: MapMouseEvent) => {
+    const feature = e.features?.[0]
+    setSelected(feature ? { ...e.lngLat, plane: feature.properties as PlaneProps } : null)
+  }
 
   if (isLoading) {
     return (
@@ -27,14 +41,17 @@ function MapView() {
   return (
     <Map
       mapboxAccessToken={config.mapboxToken}
-      initialViewState={{ longitude: 15, latitude: 48, zoom: 3.5 }}
+      initialViewState={{ longitude: 18, latitude: 62, zoom: 4 }}
       mapStyle={config.mapboxStyle}
       style={{ position: 'absolute', inset: 0 }}
+      interactiveLayerIds={[PLANES_LAYER_ID]}
+      onClick={onClick}
     >
       <Source id="searches" type="geojson" data={sampleHeatmap}>
         <Layer
           id="searches-heat"
           type="heatmap"
+          layout={{ visibility: visible.heatmap ? 'visible' : 'none' }}
           paint={{
             'heatmap-weight': ['interpolate', ['linear'], ['get', 'count'], 0, 0, 10, 1],
             'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 9, 3],
@@ -43,6 +60,19 @@ function MapView() {
           }}
         />
       </Source>
+
+      <PlanesLayer data={samplePlanes} visible={visible.flights} />
+
+      {selected && visible.flights && (
+        <Popup longitude={selected.lng} latitude={selected.lat} onClose={() => setSelected(null)}>
+          <Typography variant="subtitle2" sx={{ color: 'black' }}>
+            {selected.plane.callsign}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'black', display: 'block' }}>
+            {selected.plane.altitude} m · {selected.plane.velocity} m/s
+          </Typography>
+        </Popup>
+      )}
     </Map>
   )
 }

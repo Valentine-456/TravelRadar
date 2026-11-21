@@ -10,14 +10,17 @@ import {
   Typography,
 } from '@mui/material'
 import { useState } from 'react'
+import { useLayers, type LayerKey } from '../store/layers'
+
+const layerLabels: Record<LayerKey, string> = {
+  flights: 'Flights',
+  heatmap: 'Heatmap',
+}
 
 export function ControlsPanel() {
   const [range, setRange] = useState('24h')
-  const [layers, setLayers] = useState({ flights: true, heatmap: false, prices: true })
   const [minPrice, setMinPrice] = useState(50)
-
-  const toggleLayer = (key: keyof typeof layers) =>
-    setLayers((prev) => ({ ...prev, [key]: !prev[key] }))
+  const { visible, toggle } = useLayers()
 
   return (
     <Paper elevation={8} sx={{ p: 2, width: 280 }}>
@@ -40,11 +43,11 @@ export function ControlsPanel() {
 
       <Typography variant="subtitle2">Layers</Typography>
       <Stack>
-        {(Object.keys(layers) as (keyof typeof layers)[]).map((key) => (
+        {(Object.keys(layerLabels) as LayerKey[]).map((key) => (
           <FormControlLabel
             key={key}
-            control={<Switch size="small" checked={layers[key]} onChange={() => toggleLayer(key)} />}
-            label={key[0].toUpperCase() + key.slice(1)}
+            control={<Switch size="small" checked={visible[key]} onChange={() => toggle(key)} />}
+            label={layerLabels[key]}
           />
         ))}
       </Stack>
