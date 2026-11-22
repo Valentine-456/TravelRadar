@@ -4,15 +4,20 @@ import Map, { Layer, Popup, Source } from 'react-map-gl/mapbox'
 import type { MapMouseEvent } from 'mapbox-gl'
 import { ControlsPanel } from './components/ControlsPanel'
 import { PLANES_LAYER_ID, PlanesLayer, type PlaneProps } from './components/PlanesLayer'
+import { SHIPS_LAYER_ID, ShipsLayer, type ShipProps } from './components/ShipsLayer'
 import { StatTile } from './components/StatTile'
 import { TimelineSlider } from './components/TimelineSlider'
 import { useConfig } from './config'
 import { sampleHeatmap } from './sampleHeatmap'
 import { emptyFlights, useFlights } from './api/flights'
+import { emptyShips, navStatusLabel, useShips } from './api/ships'
 import { useLayers } from './store/layers'
 import { useTimeline } from './store/timeline'
 
-type Selected = { lng: number; lat: number; plane: PlaneProps }
+type Selected = { lng: number; lat: number } & (
+  | { kind: 'plane'; props: PlaneProps }
+  | { kind: 'ship'; props: ShipProps }
+)
 
 function MapView() {
   const { data: config, isLoading } = useConfig()
@@ -20,10 +25,16 @@ function MapView() {
   const visible = useLayers((s) => s.visible)
   const selectedTime = useTimeline((s) => s.selected)
   const { data: flights } = useFlights(selectedTime, visible.flights)
+  const { data: ships } = useShips(selectedTime, visible.ships)
 
   const onClick = (e: MapMouseEvent) => {
     const feature = e.features?.[0]
-    setSelected(feature ? { ...e.lngLat, plane: feature.properties as PlaneProps } : null)
+    if (!feature) return setSelected(null)
+    setSelected(
+      feature.layer?.id === SHIPS_LAYER_ID
+        ? { ...e.lngLat, kind: 'ship', props: feature.properties as ShipProps }
+        : { ...e.lngLat, kind: 'plane', props: feature.properties as PlaneProps },
+    )
   }
 
   if (isLoading) {
@@ -48,7 +59,7 @@ function MapView() {
       initialViewState={{ longitude: 18, latitude: 62, zoom: 4 }}
       mapStyle={config.mapboxStyle}
       style={{ position: 'absolute', inset: 0 }}
-      interactiveLayerIds={[PLANES_LAYER_ID]}
+      interactiveLayerIds={[PLANES_LAYER_ID, SHIPS_LAYER_ID]}
       onClick={onClick}
     >
       <Source id="searches" type="geojson" data={sampleHeatmap}>
@@ -65,15 +76,18 @@ function MapView() {
         />
       </Source>
 
+      <ShipsLayer data={ships ?? emptyShips} visible={visible.ships} />
       <PlanesLayer data={flights ?? emptyFlights} visible={visible.flights} />
 
-      {selected && visible.flights && (
+      {selected && visible[selected.kind === 'plane' ? 'flights' : 'ships'] && (
         <Popup longitude={selected.lng} latitude={selected.lat} onClose={() => setSelected(null)}>
           <Typography variant="subtitle2" sx={{ color: 'black' }}>
-            {selected.plane.callsign}
+            {selected.kind === 'plane' ? selected.props.callsign : selected.props.name}
           </Typography>
           <Typography variant="caption" sx={{ color: 'black', display: 'block' }}>
-            {selected.plane.altitude} m · {selected.plane.velocity} m/s
+            {selected.kind === 'plane'
+              ? `${selected.props.altitude} m · ${selected.props.velocity} m/s`
+              : `${selected.props.speed} kn · ${navStatusLabel(selected.props.navStatus)}`}
           </Typography>
         </Popup>
       )}

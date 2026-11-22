@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
-import { Layer, Source, useMap } from 'react-map-gl/mapbox'
+import { Layer, Source } from 'react-map-gl/mapbox'
 import type { FeatureCollection, Point } from 'geojson'
+import { useMapIcon } from './useMapIcon'
 
 export type PlaneProps = {
   icao24: string
@@ -16,21 +16,8 @@ export const PLANES_LAYER_ID = 'planes'
 
 const PLANE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"><path fill="#fff" d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>`
 
-function usePlaneIcon() {
-  const { current: map } = useMap()
-
-  useEffect(() => {
-    if (!map) return
-    const img = new Image(48, 48)
-    img.onload = () => {
-      if (!map.hasImage('plane')) map.addImage('plane', img, { sdf: true })
-    }
-    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(PLANE_SVG)}`
-  }, [map])
-}
-
 export function PlanesLayer({ data, visible = true }: { data: Planes; visible?: boolean }) {
-  usePlaneIcon()
+  useMapIcon('plane', PLANE_SVG)
 
   return (
     <Source id="planes" type="geojson" data={data}>

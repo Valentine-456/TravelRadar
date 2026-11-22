@@ -1,35 +1,11 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import type { Planes } from '../components/PlanesLayer'
+import type { PlaneProps } from '../components/PlanesLayer'
+import { emptySnapshot, useSnapshot, useSnapshotTimestamps, type Snapshot } from './snapshots'
 
-export type FlightsSnapshot = Planes & { time: number | null }
+export type FlightsSnapshot = Snapshot<PlaneProps>
 
-export const emptyFlights: FlightsSnapshot = { type: 'FeatureCollection', time: null, features: [] }
+export const emptyFlights: FlightsSnapshot = emptySnapshot()
 
-const REFRESH_MS = 30_000
+export const useFlightTimestamps = () => useSnapshotTimestamps('flights')
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`GET ${url} failed: ${res.status}`)
-  return res.json()
-}
-
-export function useFlightTimestamps() {
-  return useQuery({
-    queryKey: ['flights', 'timestamps'],
-    queryFn: () => getJson<{ timestamps: number[] }>('/api/flights/timestamps'),
-    select: (data) => data.timestamps,
-    refetchInterval: REFRESH_MS,
-  })
-}
-
-/** `timestamp === null` means live: the latest snapshot, refreshed regularly. */
-export function useFlights(timestamp: number | null, enabled: boolean) {
-  const live = timestamp === null
-  return useQuery({
-    queryKey: ['flights', live ? 'latest' : timestamp],
-    queryFn: () => getJson<FlightsSnapshot>(live ? '/api/flights/latest' : `/api/flights/${timestamp}`),
-    refetchInterval: live ? REFRESH_MS : false,
-    placeholderData: keepPreviousData,
-    enabled,
-  })
-}
+export const useFlights = (timestamp: number | null, enabled: boolean) =>
+  useSnapshot<PlaneProps>('flights', timestamp, enabled)

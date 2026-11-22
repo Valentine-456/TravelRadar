@@ -47,5 +47,8 @@ The frontend gets its config from `GET /api/config`.
 | `GET /api/flights/timestamps` | `{"timestamps": [...]}`, all minutes with a snapshot (Unix seconds), oldest first |
 | `GET /api/flights/latest` | Newest snapshot as GeoJSON; `time` is its timestamp |
 | `GET /api/flights/{timestamp}` | Snapshot at that minute, or the closest earlier one |
+| `GET /api/ships/timestamps` | Same as flights, for ships (5-minute snapshots) |
+| `GET /api/ships/latest` | Newest ships snapshot as GeoJSON |
+| `GET /api/ships/{timestamp}` | Ships at that time, or the closest earlier snapshot |
 
-Flight data is read from Redis (`planes:snaps`, `planes:snap:<minute>`), written by the Spark job.
+Data is read from Redis (`planes:*` and `ships:*`), written by the Spark jobs `opensky_job.py` and `aisstream_job.py`.

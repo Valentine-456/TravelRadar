@@ -14,6 +14,7 @@ import { useLayers, type LayerKey } from '../store/layers'
 
 const layerLabels: Record<LayerKey, string> = {
   flights: 'Flights',
+  ships: 'Ships',
   heatmap: 'Heatmap',
 }
 

@@ -12,7 +12,8 @@ docker compose exec $exec_flags spark-master sh -c "mkdir -p /opt/spark/apps/log
   /opt/spark/bin/spark-submit \
     --master spark://spark-master:7077 \
     --driver-memory 512m \
-    --executor-memory 768m \
+    --executor-memory 512m \
+    --conf spark.cores.max=1 \
     --conf spark.sql.shuffle.partitions=4 \
     --conf spark.jars.ivy=/tmp/.ivy2 \
     --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
