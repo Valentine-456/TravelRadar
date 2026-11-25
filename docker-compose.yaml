@@ -66,11 +66,14 @@ services:
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
     environment:
       SPARK_DAEMON_MEMORY: 512m
+      HADOOP_USER_NAME: root
     ports:
       - "8080:8080"
       - "7077:7077"
     volumes:
       - ./spark:/opt/spark/apps
+      - ./hdfs/core-site.xml:/opt/spark/conf/core-site.xml:ro
+      - ./hdfs/hdfs-site.xml:/opt/spark/conf/hdfs-site.xml:ro
       - spark_data:/opt/spark/work-dir
     networks:
       - travelradar-net
@@ -84,16 +87,71 @@ services:
       SPARK_WORKER_CORES: 2
       SPARK_WORKER_MEMORY: 1g
       SPARK_DAEMON_MEMORY: 512m
+      HADOOP_USER_NAME: root
     ports:
       - "8081:8081"
     volumes:
       - ./spark:/opt/spark/apps
+      - ./hdfs/core-site.xml:/opt/spark/conf/core-site.xml:ro
+      - ./hdfs/hdfs-site.xml:/opt/spark/conf/hdfs-site.xml:ro
       - spark_data:/opt/spark/work-dir
     depends_on:
       - spark-master
     networks:
       - travelradar-net
     restart: unless-stopped
+
+  # Optional warehouse profile: docker compose --profile warehouse up -d
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    profiles: ["warehouse"]
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    environment:
+      CLUSTER_NAME: travelradar
+      HDFS_CONF_dfs_replication: "1"
+    env_file:
+      - hdfs/hadoop.env
+    volumes:
+      - hdfs_namenode:/hadoop/dfs/name
+      - ./hdfs/init-dirs.sh:/init-dirs.sh:ro
+    networks:
+      - travelradar-net
+    restart: unless-stopped
+    mem_limit: 768m
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    profiles: ["warehouse"]
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+      HDFS_CONF_dfs_replication: "1"
+    env_file:
+      - hdfs/hadoop.env
+    volumes:
+      - hdfs_datanode:/hadoop/dfs/data
+    depends_on:
+      - namenode
+    networks:
+      - travelradar-net
+    restart: unless-stopped
+    mem_limit: 768m
+
+  hdfs-init:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    profiles: ["warehouse"]
+    env_file:
+      - hdfs/hadoop.env
+    volumes:
+      - ./hdfs/init-dirs.sh:/init-dirs.sh:ro
+    entrypoint: ["/bin/bash", "/init-dirs.sh"]
+    depends_on:
+      - namenode
+      - datanode
+    networks:
+      - travelradar-net
+    restart: "no"
 
 networks:
   travelradar-net:
@@ -102,6 +160,8 @@ volumes:
   kafka_data:
   redis_data:
   spark_data:
+  hdfs_namenode:
+  hdfs_datanode:
   nifi_conf:
   nifi_database:
   nifi_flowfile:

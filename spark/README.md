@@ -31,9 +31,15 @@ Inside the cluster use `kafka:9092` and `redis:6379`. Locally use `localhost:909
 
 ## Jobs
 
-**`opensky_job.py`** reads plane positions from the Kafka topic `opensky` and writes them to Redis:
+**`opensky_job.py`** reads plane positions from the Kafka topic `opensky` and dual-sinks to Redis + HDFS:
 
 | Key | Type | Content |
 | --- | --- | --- |
 | `planes:snaps` | sorted set | available minutes (Unix seconds) |
 | `planes:snap:<minute>` | hash | `icao24` → plane JSON, expires after 24 h |
+
+HDFS (requires `docker compose --profile warehouse up -d`): `hdfs://namenode:9000/travelradar/cleaned/flights/` partitioned by `dt`, `hour`. Checkpoints live under `/travelradar/checkpoints/opensky`.
+
+**`aisstream_job.py`** same pattern for ships → Redis `ships:*` and HDFS `/travelradar/cleaned/ships/`.
+
+**`hdfs_smoke_write.py`** one-shot write/read of 10 Parquet rows under `/travelradar/cleaned/_smoke` (no Kafka).
