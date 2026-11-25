@@ -1,34 +1,39 @@
 #!/bin/sh
-# ./submit.sh <job.py>      run in the foreground (Ctrl+C stops it)
-# ./submit.sh -d <job.py>   run in the background, logs in spark/logs/<job>.log
-#                           stop it at http://localhost:8080 -> Running Applications -> (kill)
+# ./submit.sh <job.py> [args]      run in the foreground (Ctrl+C stops it)
+# ./submit.sh -d <job.py> [args]   run in the background, logs in spark/logs/<job>.log
+#                                  stop it at http://localhost:8080 -> Running Applications -> (kill)
+#
+# Environment overrides: DRIVER_MEMORY (default 768m), EXECUTOR_MEMORY (1g), CORES (2).
 set -e
 
 exec_flags=""
 if [ "$1" = "-d" ]; then exec_flags="-d"; shift; fi
-job="$1"
-
-packages_arg=""
-case "$job" in
-  opensky_job.py|aisstream_job.py|example_job.py)
-    packages_arg="--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3"
-    ;;
-esac
+job="$1"; shift
+args="$*"
 
 log_redirect=""
 if [ -n "$exec_flags" ]; then
   log_redirect="> /opt/spark/apps/logs/${job%.py}.log 2>&1"
 fi
 
-docker compose exec $exec_flags spark-master sh -c "mkdir -p /opt/spark/apps/logs && \
+# Forward pipeline settings (see jobs/travelradar/config.py) to the driver and the executors.
+env_flags=""
+conf_flags=""
+for var in TRAVELRADAR_ROOT TOPIC_PREFIX REDIS_PREFIX ARCHIVE_TRIGGER HOT_TRIGGER; do
+  val=$(printenv "$var" || true)
+  if [ -n "$val" ]; then
+    env_flags="$env_flags -e $var=$val"
+    conf_flags="$conf_flags --conf spark.executorEnv.$var=$val"
+  fi
+done
+
+docker compose exec $exec_flags $env_flags spark-master sh -c "mkdir -p /opt/spark/apps/logs && \
   /opt/spark/bin/spark-submit \
     --master spark://spark-master:7077 \
-    --driver-memory 512m \
-    --executor-memory 512m \
-    --conf spark.cores.max=1 \
-    --conf spark.sql.shuffle.partitions=4 \
+    --driver-memory ${DRIVER_MEMORY:-768m} \
+    --executor-memory ${EXECUTOR_MEMORY:-1g} \
+    --conf spark.cores.max=${CORES:-2} \
     --conf spark.jars.ivy=/tmp/.ivy2 \
-    --conf spark.hadoop.fs.defaultFS=hdfs://namenode:9000 \
-    --conf spark.sql.sources.partitionOverwriteMode=dynamic \
-    $packages_arg \
-    /opt/spark/apps/jobs/$job $log_redirect"
+    --conf spark.executorEnv.PYTHONPATH=/opt/spark/apps/jobs $conf_flags \
+    --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+    /opt/spark/apps/jobs/$job $args $log_redirect"

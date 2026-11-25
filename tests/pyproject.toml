@@ -1,0 +1,17 @@
+[project]
+name = "travelradar-tests"
+version = "0.1.0"
+description = "Repository-level tests: NiFi flow checks and integration tests against the running stack"
+requires-python = ">=3.12"
+dependencies = [
+    "pytest>=8.3",
+    "redis>=5.2",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+markers = ["integration: needs the running docker compose stack"]
+pythonpath = [".", "../nifi"]
+addopts = "-q --junitxml=reports/repo.xml -o junit_family=xunit1"
