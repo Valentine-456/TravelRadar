@@ -1,0 +1,7 @@
+# topic                  partitions   source
+opensky                  3            OpenSky Network state vectors (flights), NiFi REST poll
+ais                      3            AISStream position reports (ships), NiFi WebSocket
+digitraffic-trains       3            Digitraffic rail: full train timetables on change (FI), NiFi MQTT
+digitraffic-locations    3            Digitraffic rail: train GPS positions (FI), NiFi MQTT
+entur-vehicles           3            Entur real-time vehicles (NO), NiFi GraphQL poll
+weather                  1            Open-Meteo current weather, 12 Nordic cities, NiFi REST poll

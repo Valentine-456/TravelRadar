@@ -1,42 +1,27 @@
 #!/bin/bash
-# Bootstrap TravelRadar directory tree on HDFS.
-# Usage (from repo root, with warehouse profile up):
-#   docker compose exec namenode bash /init-dirs.sh
-# Or via the one-shot hdfs-init service.
+# Creates the TravelRadar directory tree on HDFS. Idempotent; run by the one-shot `hdfs-init` service:
+#   docker compose run --rm hdfs-init
 set -euo pipefail
 
-HDFS_URI="${HDFS_URI:-hdfs://namenode:9000}"
-
-echo "Waiting for NameNode at ${HDFS_URI}..."
-for i in $(seq 1 60); do
-  if hdfs dfs -test -d / 2>/dev/null || hdfs dfsadmin -safemode get 2>/dev/null | grep -qi 'OFF\|ON'; then
+echo "Waiting for HDFS (namenode out of safe mode, one live datanode)..."
+for _ in $(seq 1 90); do
+  if hdfs dfsadmin -safemode get 2>/dev/null | grep -q OFF \
+     && [ "$(hdfs dfsadmin -report -live 2>/dev/null | grep -c '^Name:')" -ge 1 ]; then
     break
   fi
   sleep 2
 done
 
-# Leave safemode if stuck (fresh single-node cluster)
-hdfs dfsadmin -safemode leave 2>/dev/null || true
-
 DIRS=(
-  /travelradar
-  /travelradar/raw
-  /travelradar/cleaned
-  /travelradar/cleaned/flights
-  /travelradar/cleaned/ships
-  /travelradar/cleaned/vehicles
-  /travelradar/cleaned/weather
-  /travelradar/batch
-  /travelradar/models
-  /travelradar/checkpoints
-  /travelradar/checkpoints/opensky
-  /travelradar/checkpoints/aisstream
+  /travelradar/raw            # bronze: Kafka records exactly as received (master dataset)
+  /travelradar/cleaned        # silver: parsed, typed, validated events
+  /travelradar/batch          # batch acquisitions (history backfills)
+  /travelradar/views          # gold: batch views computed from raw + batch
+  /travelradar/models         # MS3+: model artefacts
+  /travelradar/checkpoints    # Spark streaming checkpoints
+  /travelradar/warehouse      # Hive managed tables (unused: all our tables are external)
 )
-
-for d in "${DIRS[@]}"; do
-  hdfs dfs -mkdir -p "$d"
-done
-
+hdfs dfs -mkdir -p "${DIRS[@]}"
 hdfs dfs -chmod -R 777 /travelradar
 echo "HDFS tree ready:"
-hdfs dfs -ls -R /travelradar | head -50
+hdfs dfs -ls /travelradar

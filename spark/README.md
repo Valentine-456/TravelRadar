@@ -1,45 +1,72 @@
 # Spark
 
-PySpark jobs for TravelRadar. This folder is mounted into the Spark containers at `/opt/spark/apps`. Jobs live in `jobs/`.
+PySpark jobs for TravelRadar. This folder is mounted into the Spark containers at `/opt/spark/apps`.
 
-- Master UI: http://localhost:8080
-- Worker UI: http://localhost:8081
-
-The Spark containers use a custom image (`Dockerfile`) that adds the `redis` Python package.
-After changing it: `docker compose up -d --build spark-master spark-worker`.
-
-## Run a job
-
-On the cluster (Kafka connector included):
-
-```bash
-./submit.sh opensky_job.py      # foreground, Ctrl+C stops it
-./submit.sh -d opensky_job.py   # background, the terminal can be closed
-```
-
-Background logs: `tail -f logs/opensky_job.log`
-
-Stop a background job: http://localhost:8080 → **Running Applications** → **(kill)**.
-
-Locally on your machine, without Docker (needs Java):
-
-```bash
-uv run jobs/example_job.py
-```
-
-Inside the cluster use `kafka:9092` and `redis:6379`. Locally use `localhost:9094` and `localhost:6379`.
+- Master UI: http://localhost:8080, worker UI: http://localhost:8081
+- Custom image (`Dockerfile`): adds `redis`, `pytest`, `fakeredis`. After changing it:
+  `docker compose up -d --build spark-master spark-worker`
 
 ## Jobs
 
-**`opensky_job.py`** reads plane positions from the Kafka topic `opensky` and dual-sinks to Redis + HDFS:
+| Job | Kind | What it does |
+| --- | --- | --- |
+| `pipeline_job.py` | streaming | every source: Kafka → raw archive + cleaned archive on HDFS (10 min); OpenSky/AIS also → Redis snapshots (10 s) |
+| `backfill_job.py` | batch | history: `rail` (Digitraffic archive, per day) and `weather` (Open-Meteo archive) → HDFS `batch/` |
+| `batch_views_job.py` | batch | views from HDFS: `source_volume_daily`, `quality_daily`, `consistency_daily`, `rail_delay_daily` |
+| `hdfs_smoke_write.py` | check | writes and reads 10 rows on HDFS |
+
+```bash
+./submit.sh -d pipeline_job.py                  # background, log in logs/pipeline_job.log
+./submit.sh -d pipeline_job.py entur weather    # only some sources
+./submit.sh pipeline_job.py --once              # process what is in Kafka now, then stop
+./submit.sh backfill_job.py rail --days 60
+./submit.sh batch_views_job.py --dt 2026-11-25
+```
+
+`submit.sh` forwards these environment variables to the driver and executors:
+`TRAVELRADAR_ROOT` (HDFS root, default `hdfs://namenode:9000/travelradar`), `ARCHIVE_TRIGGER`
+(e.g. `600` seconds or `availableNow`), `HOT_TRIGGER`, `TOPIC_PREFIX`, `REDIS_PREFIX` (the last two
+isolate the integration test). `DRIVER_MEMORY`, `EXECUTOR_MEMORY` and `CORES` size the application.
+
+## Code layout (`jobs/travelradar/`)
+
+| Module | Role |
+| --- | --- |
+| `sources/<source>.py` | one per source: `parse()` (Kafka record → typed, validated rows), dedup keys, quality rules |
+| `sinks.py` | raw and cleaned archive queries (Parquet file sink, exactly once, checkpoints on HDFS) |
+| `hot.py` | speed layer: plane/ship snapshots in Redis for the map |
+| `quality.py` | data-quality checks driven by each source's `quality_rules` |
+| `hive_ddl.py` | generates `hive/tables.sql` from the parsers' schemas (`./gen_hive_ddl.sh`) |
+| `config.py`, `session.py`, `common.py` | settings, Spark session, shared helpers |
+
+The streaming pipeline, the backfills and the tests all call the same `parse()` functions.
+
+## Sources → tables
+
+| Source | Topic | Cleaned table | Dedup key |
+| --- | --- | --- | --- |
+| OpenSky | `opensky` | `flight_positions` | icao24, event_time |
+| AISStream | `ais` | `ship_positions` | mmsi, event_time |
+| Digitraffic trains (MQTT) | `digitraffic-trains` | `train_stop_events` (one row per commercial stop) | train_id, stop_seq + state |
+| Digitraffic GPS (MQTT) | `digitraffic-locations` | `train_positions` | train_id, event_time |
+| Entur | `entur-vehicles` | `vehicle_positions` | vehicle_id, event_time |
+| Open-Meteo | `weather` | `weather_observations` | location_id, event_time |
+
+HDFS layout: `raw/events/topic=<topic>/dt=<ingest day>`, `cleaned/<table>/dt=<event day>`,
+`batch/<table>/dt=...`, `views/<view>/dt=...`, `checkpoints/<query>`.
+
+## Redis (speed layer)
 
 | Key | Type | Content |
 | --- | --- | --- |
-| `planes:snaps` | sorted set | available minutes (Unix seconds) |
-| `planes:snap:<minute>` | hash | `icao24` → plane JSON, expires after 24 h |
+| `planes:snaps` / `ships:snaps` | sorted set | snapshot times (Unix seconds) |
+| `planes:snap:<minute>` | hash | `icao24` → plane JSON, expires 24 h after the minute |
+| `ships:snap:<5-minute bucket>` | hash | `mmsi` → ship JSON, expires after 24 h |
 
-HDFS (requires `docker compose --profile warehouse up -d`): `hdfs://namenode:9000/travelradar/cleaned/flights/` partitioned by `dt`, `hour`. Checkpoints live under `/travelradar/checkpoints/opensky`.
+## Tests
 
-**`aisstream_job.py`** same pattern for ships → Redis `ships:*` and HDFS `/travelradar/cleaned/ships/`.
-
-**`hdfs_smoke_write.py`** one-shot write/read of 10 Parquet rows under `/travelradar/cleaned/_smoke` (no Kafka).
+```bash
+./test.sh                 # all unit tests in the Spark image (no stack needed)
+./test.sh -k ais          # pytest arguments pass through
+./gen_hive_ddl.sh         # after changing a parser: regenerate hive/tables.sql (a test checks it)
+```

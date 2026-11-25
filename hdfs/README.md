@@ -1,64 +1,36 @@
-# HDFS (warehouse profile)
+# HDFS
 
-Single-node HDFS for TravelRadar’s durable Parquet store (Lambda batch/history leg). Redis remains the hot API cache.
+Single-node HDFS (one namenode, one datanode, replication 1): the batch layer's storage. It is part
+of the normal stack (`docker compose up -d`). It uses the `apache/hive:4.0.1` image, which ships Hadoop
+3.3.6 and is published for amd64 and arm64, so it runs natively on Apple Silicon too.
 
-## Start
-
-From the repo root (needs ~1.5 GB extra RAM):
-
-```bash
-docker compose --profile warehouse up -d
-# hdfs-init runs once and creates /travelradar/...
-```
-
-NameNode UI: http://localhost:9870
+- Namenode UI: http://localhost:9870, RPC `hdfs://namenode:9000`
+- Config shared by HDFS, Hive and Spark: `conf/core-site.xml`, `conf/hdfs-site.xml`
+- `start-namenode.sh` formats the namenode on first start; `init-dirs.sh` (one-shot `hdfs-init`)
+  creates the folders
 
 ## Layout
 
 ```
-/travelradar/raw/…
-/travelradar/cleaned/flights|ships|vehicles|weather/   # partitioned Parquet (dt, hour)
-/travelradar/batch/…
-/travelradar/models/…
-/travelradar/checkpoints/opensky|aisstream
+/travelradar
+├── raw/events/topic=<topic>/dt=<ingest day>/    bronze: every Kafka record unchanged (master dataset)
+├── cleaned/<table>/dt=<event day>/              silver: parsed, validated, de-duplicated
+├── batch/raw/source=<archive>/dt=...            raw history downloads
+├── batch/<table>/dt=...                         history in the cleaned schema
+├── views/<view>/dt=...                          gold: batch views
+├── models/                                      MS3+
+└── checkpoints/<query>/                         Spark streaming checkpoints (exactly-once)
 ```
 
-## Smoke test (Spark → HDFS → read-back)
+All data is Parquet (snappy), written by Spark, and exposed as Hive tables (see `../hive`).
 
-With Spark + warehouse up:
+## Useful commands
 
 ```bash
-cd spark
-./submit.sh hdfs_smoke_write.py
+docker compose exec namenode hdfs dfs -du -h /travelradar/raw/events /travelradar/cleaned
+docker compose exec namenode hdfs dfsadmin -report
+docker compose run --rm hdfs-init               # re-create missing folders
+cd spark && ./submit.sh hdfs_smoke_write.py      # Spark → HDFS write/read check
 ```
 
-Streaming jobs always try to append Parquet under `cleaned/flights` and `cleaned/ships`. Redis still works if HDFS is down. For durable Spark checkpoints on HDFS:
-
-```bash
-docker compose exec -e USE_HDFS_CHECKPOINTS=1 spark-master ...
-# or export before ./submit.sh once submit.sh forwards the env
-```
-
-Inspect:
-
-```bash
-docker compose exec namenode hdfs dfs -ls -R /travelradar/cleaned/_smoke
-```
-
-## Re-init directories
-
-```bash
-docker compose run --rm hdfs-init
-# or
-docker compose exec namenode bash /init-dirs.sh   # if script is mounted on namenode
-```
-
-To mount the init script on the namenode for manual runs, the one-shot `hdfs-init` service already mounts it.
-
-## Stop warehouse only
-
-```bash
-docker compose --profile warehouse stop namenode datanode
-```
-
-`docker compose down -v` deletes HDFS volumes (all history).
+`docker compose down -v` deletes the HDFS volumes, i.e. all history.
