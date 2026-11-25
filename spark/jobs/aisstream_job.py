@@ -5,6 +5,7 @@ from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from kafka_topics import KafkaTopics
 from pyspark.sql.types import StructType, StructField, StringType, LongType, DoubleType, IntegerType
+from hdfs_paths import CHECKPOINT_AISSTREAM, CLEANED_SHIPS
 
 REDIS_HOST = "redis"
 RETENTION_SECONDS = 24 * 3600
@@ -81,6 +82,10 @@ def write_partition(rows) -> None:
 
 
 def write_batch(batch_df, batch_id: int) -> None:
+    if batch_df.isEmpty():
+        print(f"batch {batch_id} empty, skip")
+        return
+
     latest = batch_df.groupBy("bucket", "mmsi").agg(
         # newest position of each ship within the bucket
         F.max_by(
@@ -95,12 +100,35 @@ def write_batch(batch_df, batch_id: int) -> None:
     redis.Redis(host=REDIS_HOST, port=6379).zremrangebyscore(
         "ships:snaps", "-inf", time.time() - RETENTION_SECONDS
     )
-    print(f"batch {batch_id} written to Redis")
+
+    # Durable Lambda batch leg: partitioned Parquet on HDFS (optional if warehouse is down)
+    try:
+        hdfs_df = batch_df.groupBy("bucket", "mmsi").agg(
+            F.max_by(F.struct(
+                "mmsi", "ship_name", "latitude", "longitude",
+                "speed_knots", "heading", "nav_status", "event_time",
+            ), "event_time").alias("s"),
+        ).select(
+            F.col("s.mmsi").alias("mmsi"),
+            F.col("s.ship_name").alias("ship_name"),
+            F.col("s.latitude").alias("latitude"),
+            F.col("s.longitude").alias("longitude"),
+            F.col("s.speed_knots").alias("speed_knots"),
+            F.col("s.heading").alias("heading"),
+            F.col("s.nav_status").alias("nav_status"),
+            F.col("bucket"),
+            F.from_unixtime(F.col("bucket"), "yyyy-MM-dd").alias("dt"),
+            F.from_unixtime(F.col("bucket"), "HH").alias("hour"),
+        ).coalesce(1)
+        hdfs_df.write.mode("append").partitionBy("dt", "hour").parquet(CLEANED_SHIPS)
+        print(f"batch {batch_id} written to Redis + HDFS ({CLEANED_SHIPS})")
+    except Exception as e:
+        print(f"batch {batch_id} written to Redis; HDFS skipped ({e})")
 
 
 query = ships.writeStream \
     .foreachBatch(write_batch) \
-    .option("checkpointLocation", "/tmp/checkpoints/aisstream") \
+    .option("checkpointLocation", CHECKPOINT_AISSTREAM) \
     .trigger(processingTime="10 seconds") \
     .start()
 query.awaitTermination()

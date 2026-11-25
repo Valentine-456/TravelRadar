@@ -5,6 +5,7 @@ from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from pyspark.sql.types import ArrayType, StringType
 from kafka_topics import KafkaTopics
+from hdfs_paths import CHECKPOINT_OPENSKY, CLEANED_FLIGHTS
 
 REDIS_HOST = "redis"
 RETENTION_SECONDS = 24 * 3600
@@ -20,8 +21,8 @@ df = spark.readStream.format("kafka") \
     .load()
 
 df2 = df.select(
-    F.date_trunc("minute", "timestamp").alias("timestamp"), 
-    F.from_json(F.col("value").cast("string"), ArrayType(StringType())).alias("json")
+    F.date_trunc("minute", "timestamp").alias("timestamp"),
+    F.from_json(F.col("value").cast("string"), ArrayType(StringType())).alias("json"),
 )
 
 df3 = df2.withColumn("icao24", F.col("json")[0]) \
@@ -49,6 +50,10 @@ def write_partition(rows) -> None:
 
 
 def write_batch(batch_df, batch_id: int) -> None:
+    if batch_df.isEmpty():
+        print(f"batch {batch_id} empty, skip")
+        return
+
     planes = batch_df.dropDuplicates(["minute", "icao24"]).select(
         "minute",
         "icao24",
@@ -61,13 +66,25 @@ def write_batch(batch_df, batch_id: int) -> None:
     redis.Redis(host=REDIS_HOST, port=6379).zremrangebyscore(
         "planes:snaps", "-inf", time.time() - RETENTION_SECONDS
     )
-    print(f"batch {batch_id} written to Redis")
+
+    # Durable Lambda batch leg: partitioned Parquet on HDFS (optional if warehouse is down)
+    try:
+        hdfs_df = batch_df.dropDuplicates(["minute", "icao24"]).select(
+            "icao24", "callsign", "origin_country",
+            "longitude", "latitude", "altitude", "velocity", "true_track",
+            "minute",
+            F.from_unixtime(F.col("minute"), "yyyy-MM-dd").alias("dt"),
+            F.from_unixtime(F.col("minute"), "HH").alias("hour"),
+        ).coalesce(1)
+        hdfs_df.write.mode("append").partitionBy("dt", "hour").parquet(CLEANED_FLIGHTS)
+        print(f"batch {batch_id} written to Redis + HDFS ({CLEANED_FLIGHTS})")
+    except Exception as e:
+        print(f"batch {batch_id} written to Redis; HDFS skipped ({e})")
 
 
 query = df3.writeStream \
     .foreachBatch(write_batch) \
-    .option("checkpointLocation", "/tmp/checkpoints/opensky") \
+    .option("checkpointLocation", CHECKPOINT_OPENSKY) \
     .trigger(processingTime="10 seconds") \
     .start()
 query.awaitTermination()
-

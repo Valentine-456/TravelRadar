@@ -22,6 +22,21 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server loca
 docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic ais --partitions 3
 ```
 
+#### Optional: HDFS warehouse (durable Parquet history)
+
+Needs ~1.5 GB extra Docker memory. Start with the `warehouse` profile:
+
+```bash
+docker compose --profile warehouse up -d
+```
+
+- NameNode UI: http://localhost:9870  
+- Init creates `/travelradar/{raw,cleaned,batch,models,checkpoints}`  
+- Spark jobs write cleaned flights/ships to HDFS **and** Redis  
+- Smoke test: `cd spark && ./submit.sh hdfs_smoke_write.py`  
+
+Details: [`hdfs/README.md`](hdfs/README.md), plan: [`documentation/HDFS_Implementation_Plan.md`](documentation/HDFS_Implementation_Plan.md).
+
 ### 3. NiFi
 
 https://localhost:8443/nifi, login `admin` / `travelradar123`.
